@@ -69,10 +69,13 @@ jobs:
         # Deploy repository and service
         ssh -o StrictHostKeyChecking=no $CONNECTION "
           set -e
+          # Configure git to ignore file mode changes locally
+          git config core.fileMode false
           systemctl --user daemon-reload
           if [ ! -d ~/$REPO_NAME ]; then
             echo 'Cloning repository...'
             git clone https://github.com/${{ github.repository }} ~/$REPO_NAME
+            cd ~/$REPO_NAME
           else
             echo 'Updating existing repository...'
             systemctl --user stop startup-deployed@$REPO_NAME.service || true
@@ -80,6 +83,7 @@ jobs:
             git fetch
             git pull
           fi
-          chmod +x ~/$REPO_NAME/init.sh
+          # Always ensure init.sh is executable after clone/pull
+          chmod +x init.sh
           systemctl --user enable --now startup-deployed@$REPO_NAME.service
           echo 'Deployment completed successfully'"
