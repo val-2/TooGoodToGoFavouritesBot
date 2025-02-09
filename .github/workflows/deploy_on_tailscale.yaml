@@ -1,0 +1,85 @@
+name: Deploy to Tailscale Server
+
+on:
+  # Runs on pushes targeting the default branch
+  push:
+    branches: ["main"]
+
+  workflow_dispatch:
+
+env:
+  SERVER_IP: 'ubuntu-vps'
+  SSH_USER: 'val'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Tailscale
+      uses: tailscale/github-action@v2
+      with:
+        oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+        oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+        tags: tag:github
+
+    - name: Deploy to Server
+      run: |
+        # Verify connection variables
+        if [ -z "$SERVER_IP" ] || [ -z "$SSH_USER" ]; then
+          echo "Error: Environment variables SERVER_IP or SSH_USER are not set"
+          exit 1
+        fi
+
+        # Set up connection details
+        CONNECTION="$SSH_USER@$SERVER_IP"
+        echo "Attempting to connect to $CONNECTION"
+
+        # Test SSH connection first
+        if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $CONNECTION 'echo "SSH connection successful"'; then
+          echo "Error: Cannot establish SSH connection"
+          exit 1
+        fi
+
+        # Create a temporary service file
+        echo "[Unit]
+        Description=StartUp Service for %I
+
+        [Service]
+        Type=simple
+        ExecStart=/bin/bash -l -c \"%h/%i/init.sh\"
+        WorkingDirectory=%h/%i
+        Restart=on-failure
+        RestartSec=5s
+        TimeoutStopSec=30
+
+        [Install]
+        WantedBy=default.target" > service.tmp
+
+        # Set repository name
+        REPO_NAME=$(echo "${{ github.repository }}" | cut -d "/" -f2)
+        echo "Setting up repository: $REPO_NAME"
+
+        # Create systemd user directory and transfer service file
+        ssh -o StrictHostKeyChecking=no $CONNECTION "mkdir -p ~/.config/systemd/user"
+        scp -o StrictHostKeyChecking=no service.tmp "$CONNECTION:~/.config/systemd/user/startup-deployed@.service"
+        rm service.tmp
+
+        # Deploy repository and service
+        ssh -o StrictHostKeyChecking=no $CONNECTION "
+          set -e
+          systemctl --user daemon-reload
+          if [ ! -d ~/$REPO_NAME ]; then
+            echo 'Cloning repository...'
+            git clone https://github.com/${{ github.repository }} ~/$REPO_NAME
+          else
+            echo 'Updating existing repository...'
+            systemctl --user stop startup-deployed@$REPO_NAME.service || true
+            cd ~/$REPO_NAME
+            git fetch
+            git pull
+          fi
+          chmod +x ~/$REPO_NAME/init.sh
+          systemctl --user enable --now startup-deployed@$REPO_NAME.service
+          echo 'Deployment completed successfully'"
