@@ -1,9 +1,8 @@
 import asyncio
 import logging
-import time
 import os
+from datetime import datetime
 from dotenv import load_dotenv
-from typing import Dict, Any
 from tgtg import TgtgClient
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
@@ -20,7 +19,7 @@ load_dotenv()
 LATITUDE = 48.126
 LONGITUDE = -1.723
 RADIUS = 10
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+TELEGRAM_BOT_TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
 
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not found in environment variables")
@@ -33,8 +32,24 @@ def get_client_for_user(user: User) -> TgtgClient:
         cookie=user.cookie
     )
 
+def format_pickup_interval(start: str, end: str) -> str:
+    """Format pickup interval in a clean way"""
+    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+
+    date_format = "%d/%m/%Y"
+    time_format = "%H:%M"
+
+    if start_dt.date() == end_dt.date():
+        # Same day
+        return f"{start_dt.strftime(date_format)} {start_dt.strftime(time_format)}-{end_dt.strftime(time_format)}"
+    else:
+        # Different days
+        return f"{start_dt.strftime(date_format)} {start_dt.strftime(time_format)} - {end_dt.strftime(date_format)} {end_dt.strftime(time_format)}"
+
 async def start(update: Update, context: CallbackContext):
     """Start command handler with available commands info"""
+    assert update.message is not None
     message = (
         "Ciao! Ecco i comandi disponibili:\n\n"
         "/start - Mostra questo messaggio\n"
@@ -46,6 +61,7 @@ async def start(update: Update, context: CallbackContext):
 
 async def status(update: Update, context: CallbackContext):
     """Check current user status"""
+    assert update.message is not None
     chat_id = update.message.chat_id
     with Session() as session:
         user = session.query(User).filter_by(chat_id=chat_id).first()
@@ -58,6 +74,7 @@ async def status(update: Update, context: CallbackContext):
 
 async def remove(update: Update, context: CallbackContext):
     """Remove user data and stop notifications"""
+    assert update.message is not None
     chat_id = update.message.chat_id
     with Session() as session:
         user = session.query(User).filter_by(chat_id=chat_id).first()
@@ -69,6 +86,8 @@ async def remove(update: Update, context: CallbackContext):
             await update.message.reply_text("❌ Nessuna email registrata.")
 
 async def handle_email(update: Update, context: CallbackContext):
+    assert update.message is not None
+    assert update.message.text is not None
     email = update.message.text.strip().lower()
     chat_id = update.message.chat_id
 
@@ -188,8 +207,10 @@ async def check_favorites(context: CallbackContext):
                         display_name = item["display_name"]
                         description = item["item"]["description"].split("\n")[0]
                         pickup_interval = item["pickup_interval"]
-                        start = pickup_interval["start"]
-                        end = pickup_interval["end"]
+                        pickup_time: str = format_pickup_interval(
+                            pickup_interval["start"],
+                            pickup_interval["end"]
+                        )
                         price = item["item"]["item_price"]["minor_units"] / 100
                         value = item["item"]["item_value"]["minor_units"] / 100
                         image_url = item["item"]["cover_picture"]["current_url"]
@@ -202,7 +223,7 @@ async def check_favorites(context: CallbackContext):
                             f"💰 Prezzo: {price:.2f}€\n"
                             f"💎 Valore: {value:.2f}€\n"
                             f"📦 Disponibili: {items_available}\n"
-                            f"⏰ Ritiro: {start} - {end}\n\n"
+                            f"⏰ Ritiro: {pickup_time}\n\n"
                             f"⚡️ Affrettati, potrebbero esaurirsi velocemente!"
                         )
 
@@ -241,6 +262,7 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_email))
 
     # Setup job queue
+    assert application.job_queue is not None
     application.job_queue.run_repeating(check_favorites, interval=60, first=5)
 
     logger.info("Starting bot...")
