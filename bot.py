@@ -104,7 +104,7 @@ async def handle_email(update: Update, context: CallbackContext):
         await update.message.reply_text(
             "🔄 Ti sta per arrivare una email da TooGoodToGo!\n"
             "Clicca sul link nella email per completare la registrazione.\n"
-            "Se sei da mobile apri il link nel browser tenendo premuto sul link, aprirlo con l'app di TooGoodToGo non funzionerà."
+            "⚠️⚠️ Se sei da mobile apri il link nel browser (tenendo premuto sul link, Condividi > browser). ⚠️⚠️\nAprire il link con l'app di TooGoodToGo non funzionerà."
         )
 
         client = TgtgClient(email=email)
