@@ -7,6 +7,7 @@ from tgtg import TgtgClient
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from models import Session, User, NotifiedBag, init_db
+from pytz import timezone
 
 # --- Logging Configuration ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -34,8 +35,10 @@ def get_client_for_user(user: User) -> TgtgClient:
 
 def format_pickup_interval(start: str, end: str) -> str:
     """Format pickup interval in a clean way"""
-    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+    local_tz = timezone('Europe/Rome')
+
+    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(local_tz)
+    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00')).astimezone(local_tz)
 
     date_format = "%d/%m/%Y"
     time_format = "%H:%M"
